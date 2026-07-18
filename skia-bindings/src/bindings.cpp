@@ -481,7 +481,7 @@ extern "C" SkImage* C_SkImage_makeScaled(const SkImage* self, const SkImageInfo*
 }
 
 extern "C" SkData* C_SkImage_refEncodedData(const SkImage* self) {
-    return const_cast<SkData*>(self->refEncodedData().release());
+    return self->refEncodedData().release();
 }
 
 extern "C" SkImage* C_SkImage_makeSubset(const SkImage* self, SkRecorder* recorder, const SkIRect* subset, const SkImage::RequiredProperties* properties) {
@@ -2481,7 +2481,7 @@ extern "C" void C_SkImageGenerator_delete(SkImageGenerator *self) {
 }
 
 extern "C" SkData *C_SkImageGenerator_refEncodedData(SkImageGenerator *self) {
-    return const_cast<SkData*>(self->refEncodedData().release());
+    return self->refEncodedData().release();
 }
 
 extern "C" bool C_SkImageGenerator_isValid(const SkImageGenerator* self, SkRecorder* recorder) {
