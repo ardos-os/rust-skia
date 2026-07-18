@@ -56,14 +56,30 @@ fn main() -> Result<(), io::Error> {
 
             binaries_config.import(&search_path, false).unwrap();
 
-            let definitions = skia_bindgen::definitions::from_env();
+            // Run gn gen to produce ninja files so we can extract the preprocessor
+            // definitions.  This avoids requiring the caller to maintain a
+            // SKIA_BUILD_DEFINES string that must match the original skia build.
+            let final_build_configuration = skia_configure_only(
+                features.clone(),
+                &binaries_config,
+                &source_dir,
+                skia_debug,
+            );
+            let definitions = skia_bindgen::definitions::from_ninja_features(
+                &features,
+                final_build_configuration.use_system_libraries,
+                &binaries_config.output_directory,
+            );
             generate_bindings(
                 &features,
                 definitions,
                 &binaries_config,
                 &source_dir,
                 cargo_target,
-                None,
+                final_build_configuration
+                    .sysroot
+                    .as_ref()
+                    .map(AsRef::as_ref),
             );
         } else {
             if cfg!(feature = "no-compile") {
@@ -179,6 +195,47 @@ fn build_from_source(
     );
 
     final_configuration
+}
+
+/// Run only `gn gen` to produce ninja files (for extracting preprocessor definitions)
+/// without actually compiling Skia.  Used in the prebuilt-library path.
+fn skia_configure_only(
+    features: features::Features,
+    binaries_config: &binaries_config::BinariesConfiguration,
+    skia_source_dir: &std::path::Path,
+    skia_debug: bool,
+) -> skia::FinalBuildConfiguration {
+    let build_config = skia::BuildConfiguration::from_features(features, skia_debug);
+    let final_configuration = skia::FinalBuildConfiguration::from_build_configuration(
+        &build_config,
+        skia::env::use_system_libraries(),
+        skia_source_dir,
+    );
+
+    let python = locate_python3();
+    skia::configure_skia(
+        &final_configuration,
+        binaries_config,
+        &python,
+        skia::env::gn_command().as_deref(),
+    );
+
+    final_configuration
+}
+
+fn locate_python3() -> std::path::PathBuf {
+    for cmd in &["python3", "python"] {
+        let output = std::process::Command::new(cmd)
+            .arg("--version")
+            .output();
+        if let Ok(out) = output {
+            let ver = String::from_utf8_lossy(&out.stdout);
+            if ver.starts_with("Python 3.") {
+                return cmd.into();
+            }
+        }
+    }
+    panic!("Python 3 not found");
 }
 
 fn generate_bindings(
