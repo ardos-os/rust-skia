@@ -33,7 +33,7 @@ pub fn link_libraries(features: &Features) -> Vec<String> {
 
     // Use pkg-config for system libraries when available
     add_pkg_config_libs(&mut libs, "freetype2", &["freetype"]);
-    add_pkg_config_libs(&mut libs, "fontconfig", &["fontconfig"]);
+    // add_pkg_config_libs(&mut libs, "fontconfig", &["fontconfig"]);
 
     if features[feature::GL] {
         if features[feature::EGL] {
