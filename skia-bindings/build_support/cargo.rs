@@ -48,7 +48,8 @@ pub fn add_static_link_libs<T: AsRef<str>>(target: &Target, libs: impl IntoItera
 pub fn add_static_link_lib(target: &Target, lib: impl AsRef<str>) {
     // Prefixing the libraries we built with `static=` causes linker errors on Windows.
     // https://github.com/rust-skia/rust-skia/pull/354
-    if target.is_windows() {
+    // When SKIA_LINK_DYLIB is set, link against a prebuilt shared library instead.
+    if target.is_windows() || env_var("SKIA_LINK_DYLIB").is_some() {
         println!("cargo:rustc-link-lib={}", lib.as_ref());
     } else {
         println!("cargo:rustc-link-lib=static={}", lib.as_ref());
@@ -81,6 +82,8 @@ impl Target {
         let name = name.as_ref();
         if self.is_windows() {
             format!("{name}.lib").into()
+        } else if env_var("SKIA_LINK_DYLIB").is_some() {
+            format!("lib{name}.so").into()
         } else {
             format!("lib{name}.a").into()
         }
