@@ -4,9 +4,12 @@ members = [
     "skia-safe",
     "skia-svg-macros",
     "skia-bindings",
-    "skia-org",
     "mk-workflows",
     "comment-converter",
+]
+exclude = [
+    "skia-bindings/skia",
+    "skia-org",
 ]
 
 [workspace.package]
