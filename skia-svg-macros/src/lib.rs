@@ -4,12 +4,9 @@ use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use std::fmt::Write;
-use syn::{
-    braced, bracketed, parenthesized,
-    parse::{Parse, ParseStream, Parser},
-    punctuated::Punctuated,
-    token, Expr, Ident, LitStr, Token, Type,
-};
+use syn::parse::{Parse, ParseStream, Parser};
+use syn::punctuated::Punctuated;
+use syn::{Expr, Ident, LitStr, Token, Type, braced, bracketed, parenthesized, token};
 
 struct Property {
     by_ref: Option<Token![&]>,
@@ -166,7 +163,7 @@ fn attrs2(input: TokenStream) -> TokenStream2 {
                     &alias.map(|alias| alias.value()).unwrap_or_else(|| attr.to_string())
                         .split('_')
                         .fold(String::new(), |mut data, word| {
-                            write!(data, "{}{}", &word[0..1].to_uppercase(), &word[1..]).unwrap();
+                            write!(data, "{}{}", word[0..1].to_uppercase(), &word[1..]).unwrap();
 
                             data
                         }),

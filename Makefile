@@ -1,6 +1,6 @@
-doc-features-win="gl,vulkan,d3d,textlayout,svg,ureq,webp"
-doc-features-mac="gl,vulkan,metal,textlayout,svg,ureq,webp"
-doc-features-docs-rs="gl,textlayout,svg,ureq,webp"
+doc-features-win="gl,vulkan,d3d,textlayout,svg,skottie,ureq,webp"
+doc-features-mac="gl,vulkan,metal,textlayout,svg,skottie,ureq,webp"
+doc-features-docs-rs="ganesh,gl,textlayout,svg,skottie,ureq,webp,vulkan"
 
 .PHONY: all
 all:
@@ -24,21 +24,30 @@ crate-tests: crate-bindings-binaries crate-bindings-build
 .PHONY: crate-bindings-binaries
 crate-bindings-binaries: export FORCE_SKIA_BINARIES_DOWNLOAD=1
 crate-bindings-binaries:
-	cd skia-bindings && cargo publish -vv --dry-run --features "gl,vulkan,textlayout,binary-cache"
+	cd skia-bindings && cargo publish -vv --dry-run --features "ganesh,gl,vulkan,textlayout,binary-cache"
 	cd skia-bindings && cargo publish -vv --dry-run 
 
 .PHONY: crate-bindings-build
 crate-bindings-build: export FORCE_SKIA_BUILD=1
 crate-bindings-build: 
-	cd skia-bindings && cargo publish -vv --dry-run --features "gl,vulkan,textlayout"
-	cd skia-bindings && cargo publish -vv --dry-run 
+	rm -rf target/package/skia-bindings-*
+	cd skia-bindings && cargo package -vv --no-verify
+	cd target/package && tar xzf skia-bindings-*.crate
+	cargo build -vv --manifest-path target/package/skia-bindings-*/Cargo.toml --features "ganesh,gl,vulkan,textlayout"
+	rm -rf target/package/skia-bindings-*
+	cd skia-bindings && cargo package -vv --no-verify
+	cd target/package && tar xzf skia-bindings-*.crate
+	cargo build -vv --manifest-path target/package/skia-bindings-*/Cargo.toml
 
 .PHONY: crate-post-release-test
 crate-post-release-test:
+	test -n "${RELEASE_VERSION}"
 	rm -rf /tmp/skia-test
 	cd /tmp && cargo new skia-test
-	cd /tmp/skia-test && cargo add skia-safe
+	cd /tmp/skia-test && cargo add "skia-safe@=${RELEASE_VERSION}"
 	cd /tmp/skia-test && cargo run
+	# https://github.com/rust-skia/rust-skia/issues/1310
+	cd /tmp/skia-test && cargo build --target wasm32-unknown-emscripten
 
 # Publishes skia-bindings and skia-safe to crates.io
 # This is temporary and should be automated.
@@ -46,19 +55,25 @@ crate-post-release-test:
 #   .cargo/credentials
 
 .PHONY: publish
-publish: package-bindings package-safe publish-bindings wait publish-safe
+publish: package-bindings package-safe publish-bindings-docs wait publish-safe
 
 .PHONY: publish-only
-publish-only: publish-bindings publish-safe
+publish-only: publish-bindings-docs publish-safe
 
 .PHONY: publish-bindings
 publish-bindings:
 	cd skia-bindings && cargo publish -vv --no-verify
 
+# `publish-bindings-docs` is the variant that ships `bindings_docs.rs` in
+# the tarball -- without that file, `DOCS_RS=1` builds of downstream crates
+# fail at the bindings copy step (see rust-skia#720). The aggregate
+# `publish` and `publish-only` targets above always go through this target
+# so released tarballs include the documentation bindings.
 .PHONY: publish-bindings-docs
 publish-bindings-docs: bindings-docs
 	cd skia-bindings && cp /tmp/bindings.rs bindings_docs.rs
 	cd skia-bindings && cargo publish -vv --no-verify --allow-dirty
+	rm skia-bindings/bindings_docs.rs
 
 # SVG Macros are most likely changed rarely. So this is separate.
 
@@ -120,6 +135,13 @@ update-doc:
 doc:
 	cargo doc --no-deps --features ${doc-features-mac}
 
+# Runs all tests that can be run on macOS with the full macOS feature set.
+.PHONY: test-macos
+test-macos:
+	cargo test -p skia-safe --features "all-macos,ureq" --lib
+	cargo test -p skia-safe --features "all-macos,ureq" --tests
+	cargo build -p skia-safe --features "all-macos,ureq" --examples
+
 build-flags-win=--release --features "gl,vulkan,d3d,textlayout,webp"
 
 .PHONY: github-build-win
@@ -165,7 +187,7 @@ build-local-build:
 	cargo clean
 	SKIA_SOURCE_DIR=$(shell pwd)/skia-bindings/skia SKIA_BUILD_DEFINES=`cat tmp/skia-defines.txt` SKIA_LIBRARY_SEARCH_PATH=$(shell pwd)/tmp cargo build --release --no-default-features -vv --features ${local-build-features}
 
-# Diffs the rust skia commits of the current branch with what is commited to the master branch.
+# Diffs the rust skia commits of the current branch with what is committed to the master branch.
 rust-skia-logs = git log --oneline | head -n 1000 | grep rust-skia | cut -d' ' -f2-
 .PHONY: diff-skia
 diff-skia:

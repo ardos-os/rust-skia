@@ -1,8 +1,37 @@
+use std::{ffi::CStr, os::raw};
+
 use skia_bindings::{
     self as sb, skgpu_VulkanAlloc, skgpu_VulkanBackendMemory, skgpu_VulkanYcbcrConversionInfo,
 };
 
 use crate::{gpu::vk, prelude::*};
+
+// TODO: Tried to use CStr here, but &CStr needs a lifetime parameter
+//       which would make the whole GetProc trait generic.
+#[derive(Copy, Clone, Debug)]
+pub enum GetProcOf {
+    Instance(vk::Instance, *const raw::c_char),
+    Device(vk::Device, *const raw::c_char),
+}
+
+impl GetProcOf {
+    /// # Safety
+    /// The referred raw `name` strings must outlive the returned CStr reference.
+    pub unsafe fn name(&self) -> &CStr {
+        match *self {
+            GetProcOf::Instance(_, name) => unsafe { CStr::from_ptr(name) },
+            GetProcOf::Device(_, name) => unsafe { CStr::from_ptr(name) },
+        }
+    }
+}
+
+// TODO: Really would like to see a fn() signature here, but I'm always running
+//       into a conflict between extern "C" and extern "system".
+pub type GetProcResult = *const raw::c_void;
+
+// GetProc is a trait alias for Fn...
+pub trait GetProc: Fn(GetProcOf) -> GetProcResult {}
+impl<T> GetProc for T where T: Fn(GetProcOf) -> GetProcResult {}
 
 #[deprecated(since = "0.76.0", note = "Use BackendMemory")]
 pub type GraphicsBackendMemory = skgpu_VulkanBackendMemory;
@@ -70,20 +99,19 @@ impl Alloc {
     }
 }
 
+// Robustness: All fields turned private in m144, so it's probably best to convert this to a Handle.
 #[derive(Copy, Clone, Eq, Debug)]
 #[repr(C)]
 pub struct YcbcrConversionInfo {
-    pub format: vk::Format,
-    pub external_format: u64,
-    pub ycbcr_model: vk::SamplerYcbcrModelConversion,
-    pub ycbcr_range: vk::SamplerYcbcrRange,
-    pub x_chroma_offset: vk::ChromaLocation,
-    pub y_chroma_offset: vk::ChromaLocation,
-    pub chroma_filter: vk::Filter,
-    pub force_explicit_reconstruction: vk::Bool32,
-    pub components: vk::ComponentMapping,
-    pub format_features: vk::FormatFeatureFlags,
-
+    format: vk::Format,
+    external_format: u64,
+    ycbcr_model: vk::SamplerYcbcrModelConversion,
+    ycbcr_range: vk::SamplerYcbcrRange,
+    x_chroma_offset: vk::ChromaLocation,
+    y_chroma_offset: vk::ChromaLocation,
+    chroma_filter: vk::Filter,
+    force_explicit_reconstruction: vk::Bool32,
+    components: vk::ComponentMapping,
     sampler_filter_must_match_chroma_filter: bool,
     supports_linear_filter: bool,
 }
@@ -113,7 +141,6 @@ impl Default for YcbcrConversionInfo {
                 b: vk::ComponentSwizzle::VK_COMPONENT_SWIZZLE_IDENTITY,
                 a: vk::ComponentSwizzle::VK_COMPONENT_SWIZZLE_IDENTITY,
             },
-            format_features: 0,
             sampler_filter_must_match_chroma_filter: true,
             supports_linear_filter: false,
         }
@@ -219,6 +246,10 @@ impl YcbcrConversionInfo {
 
     pub fn components(&self) -> vk::ComponentMapping {
         self.components
+    }
+
+    pub fn sampler_filter_must_match_chroma_filter(&self) -> bool {
+        self.sampler_filter_must_match_chroma_filter
     }
 
     pub fn supports_linear_filter(&self) -> bool {

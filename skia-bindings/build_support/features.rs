@@ -48,11 +48,21 @@ impl Features {
             features += feature::D3D;
         }
 
+        if cfg!(feature = "ganesh") {
+            features += feature::GANESH;
+        }
+        if cfg!(feature = "graphite") {
+            features += feature::GRAPHITE;
+        }
+
         if cfg!(feature = "textlayout") {
             features += feature::TEXTLAYOUT;
         }
         if cfg!(feature = "svg") {
             features += feature::SVG;
+        }
+        if cfg!(feature = "skottie") {
+            features += feature::SKOTTIE;
         }
         if cfg!(feature = "webp-encode") {
             features += feature::WEBP_ENCODE;
@@ -68,11 +78,30 @@ impl Features {
             features += feature::FREETYPE_WOFF2;
         }
 
+        if cfg!(feature = "jpeg-encode") {
+            features += feature::JPEG_ENCODE;
+        }
+        if cfg!(feature = "jpeg-decode") {
+            features += feature::JPEG_DECODE;
+        }
+
         features
     }
 
-    pub fn gpu(&self) -> bool {
-        self[feature::GL] || self[feature::VULKAN] || self[feature::METAL] || self[feature::D3D]
+    pub fn ganesh(&self) -> bool {
+        self[feature::GANESH]
+    }
+
+    pub fn graphite(&self) -> bool {
+        self[feature::GRAPHITE]
+    }
+
+    pub fn has_gpu_engine(&self) -> bool {
+        self.ganesh() || self.graphite()
+    }
+
+    pub fn backend_without_engine(&self) -> bool {
+        (self[feature::VULKAN] || self[feature::METAL]) && !self.has_gpu_engine()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -96,6 +125,7 @@ impl Features {
     }
 
     /// A comparable set of feature ids (sorted and joined by `-`).
+    #[allow(unused)]
     pub fn to_key(&self) -> String {
         let mut features: Vec<_> = self
             .0
@@ -189,10 +219,17 @@ pub mod feature {
     /// Build with Direct3D support
     pub const D3D: &str = "d3d";
 
+    /// Build with Ganesh support
+    pub const GANESH: &str = "ganesh";
+    /// Build with Graphite support
+    pub const GRAPHITE: &str = "graphite";
+
     /// Features related to text layout. Modules skshaper and skparagraph
     pub const TEXTLAYOUT: &str = "textlayout";
     /// Support for rendering SVG
     pub const SVG: &str = "svg";
+    /// Support for Lottie animations via Skottie
+    pub const SKOTTIE: &str = "skottie";
     /// Support the encoding of bitmap data to the WEBP image format
     pub const WEBP_ENCODE: &str = "webp-encode";
     /// Support the decoding of the WEBP image format to bitmap data
@@ -203,14 +240,27 @@ pub mod feature {
     /// Build with FreeType WOFF2 support
     pub const FREETYPE_WOFF2: &str = "freetype-woff2";
 
+    pub const JPEG_ENCODE: &str = "jpeg-encode";
+    pub const JPEG_DECODE: &str = "jpeg-decode";
+
     pub const FREETYPE_SPECIFIC: &[&str] = &[EMBED_FREETYPE, FREETYPE_WOFF2];
 
-    pub const DEPENDENCIES: &[(&str, &[&str])] = &[(EGL, &[GL]), (X11, &[GL]), (WAYLAND, &[EGL])];
+    pub const DEPENDENCIES: &[(&str, &[&str])] = &[
+        (GL, &[GANESH]),
+        (EGL, &[GL]),
+        (X11, &[GL]),
+        (WAYLAND, &[EGL]),
+        (D3D, &[GANESH]),
+        (SKOTTIE, &[TEXTLAYOUT]),
+        (PDF, &[JPEG_ENCODE, JPEG_DECODE]),
+    ];
 
     pub const KEY_REPLACEMENTS: &[(&str, &str)] = &[
         (WEBP_ENCODE, "webpe"),
         (WEBP_DECODE, "webpd"),
         (EMBED_FREETYPE, "ftembed"),
         (FREETYPE_WOFF2, "ftwoff2"),
+        (JPEG_ENCODE, "jpege"),
+        (JPEG_DECODE, "jpegd"),
     ];
 }

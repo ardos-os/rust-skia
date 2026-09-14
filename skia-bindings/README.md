@@ -14,7 +14,7 @@ This package contains three components.
 
 Building Skia is quite exceptional, a number of prerequisites need to be available and configured properly for the target platform.
 
-To configure and build Skia, [`build_support/skia.rs`](build_support/skia.rs) does all the hard work: it pulls `depot_tools/` and `skia/` from Google's repositories and a number of additional dependencies by executing `skia/tools/git-sync-deps` with Python. After that, it configures Skia with Google's [GN](https://gn.googlesource.com/gn/+/refs/heads/master/README.md) tool, and finally builds it by giving control to the `ninja` executable from the `depot_tools/` package.
+To configure and build Skia, [`build_support/skia.rs`](build_support/skia.rs) does all the hard work: it synchronizes Skia's additional dependencies by executing `skia/tools/git-sync-deps` with Python. After that, it configures Skia with Google's [GN](https://gn.googlesource.com/gn/+/refs/heads/master/README.md) tool, and finally builds it with the configured `ninja` executable.
 
 ### Binding Generation
 
@@ -38,10 +38,12 @@ And whenever the build script detects that `skia-bindings` is built from inside 
 
 Some users may not have a stable internet connection or are building `skia-bindings` in an offline environment. It is possible to download binaries manually from the [skia-binaries repository](<https://github.com/rust-skia/skia-binaries/releases>) in an environment where internet access is available.
 
-To use the binaries in an offline build, the environment variable `SKIA_BINARIES_URL` must be set. This environment variable must point to the `tar.gz` file where the binaries are located, prepended with `file://`.
+To use the binaries in an offline build, the environment variable `SKIA_BINARIES_URL` must be set. This environment variable must point to the `tar.gz` file where the binaries are located, prepended with `file://` (for relative path) or `file:///` (for absolute path).
 
 ```bash
-export SKIA_BINARIES_URL='file://path/to/skia-binaries.tar.gz'
+export SKIA_BINARIES_URL='file://relative/path/to/skia-binaries.tar.gz'
+# or, if using absolute path:
+export SKIA_BINARIES_URL='file:///home/path/to/skia-binaries.tar.gz'
 ```
 
 ### Changing the executable used as `ninja` and `gn`

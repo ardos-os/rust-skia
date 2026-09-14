@@ -34,6 +34,8 @@
 #include "include/core/SkColor.h"
 #include "include/core/SkColorFilter.h"
 #include "include/core/SkColorTable.h"
+#include "include/core/SkContext.h"
+#include "include/core/SkContextOptions.h"
 #include "include/core/SkCPURecorder.h"
 #include "include/core/SkContourMeasure.h"
 #include "include/core/SkCoverageMode.h"
@@ -71,6 +73,7 @@
 #include "include/core/SkRRect.h"
 #include "include/core/SkRSXform.h"
 #include "include/core/SkStream.h"
+#include "include/core/SkStrikeRef.h"
 #include "include/core/SkStrokeRec.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkSwizzle.h"
@@ -80,6 +83,7 @@
 #include "include/core/SkTypeface.h"
 #include "include/core/SkTypes.h"
 #include "include/core/SkVertices.h"
+#include "include/core/RasterContext.h"
 // docs/
 #include "include/docs/SkPDFDocument.h"
 #include "include/docs/SkPDFJpegHelpers.h"
@@ -93,7 +97,7 @@
 #include "include/effects/SkCornerPathEffect.h"
 #include "include/effects/SkDashPathEffect.h"
 #include "include/effects/SkDiscretePathEffect.h"
-#include "include/effects/SkGradientShader.h"
+#include "include/effects/SkGradient.h"
 #include "include/effects/SkHighContrastFilter.h"
 #include "include/effects/SkImageFilters.h"
 #include "include/effects/SkLumaColorFilter.h"
@@ -259,9 +263,11 @@ extern "C" void C_SkIcoDecoder_Decoder(SkCodecs::Decoder* uninitialized) {
     new (uninitialized) SkCodecs::Decoder(SkIcoDecoder::Decoder());
 }
 
+#if defined(SK_CODEC_DECODES_JPEG)
 extern "C" void C_SkJpegDecoder_Decoder(SkCodecs::Decoder* uninitialized) {
     new (uninitialized) SkCodecs::Decoder(SkJpegDecoder::Decoder());
 }
+#endif
 
 extern "C" void C_SkPngDecoder_Decoder(SkCodecs::Decoder* uninitialized) {
     new (uninitialized) SkCodecs::Decoder(SkPngDecoder::Decoder());
@@ -293,6 +299,10 @@ extern "C" void C_SkEncodedOriginToMatrix(SkEncodedOrigin origin, int w, int h, 
     *matrix = SkEncodedOriginToMatrix(origin, w, h);
 }
 
+extern "C" void C_SkEncodedOriginToMatrixInverse(SkEncodedOrigin origin, int w, int h, SkMatrix* matrix) {
+    *matrix = SkEncodedOriginToMatrixInverse(origin, w, h);
+}
+
 //
 // codec/SkPixmapUtils.h
 //
@@ -311,6 +321,28 @@ extern "C" void C_SkPixmapUtils_SwapWidthHeight(SkImageInfo* uninitialized, cons
 
 extern "C" void C_Core_Types(
     SkArc *, SkGraphics *, SkCoverageMode *, SkColorChannelFlag *, SkSurfaces::BackendSurfaceAccess) {};
+
+extern "C" void C_SkDocument_Types(SkDocument*) {}
+
+//
+// core/SkContext.h, core/SkContextOptions.h, core/RasterContext.h
+//
+
+extern "C" void C_SkContextOptions_Construct(SkContextOptions* uninitialized) {
+    new (uninitialized) SkContextOptions();
+}
+
+extern "C" void C_SkContextOptions_destruct(SkContextOptions* self) {
+    self->~SkContextOptions();
+}
+
+extern "C" SkContext* C_SkContexts_MakeRaster(const SkContextOptions& options) {
+    return SkContexts::MakeRaster(options).release();
+}
+
+extern "C" void C_SkContext_delete(SkContext* self) {
+    delete self;
+}
 
 //
 // core/SkBlender.h
@@ -480,7 +512,7 @@ extern "C" SkImage* C_SkImage_makeScaled(const SkImage* self, const SkImageInfo*
     return self->makeScaled(*info, *sampling).release();
 }
 
-extern "C" SkData* C_SkImage_refEncodedData(const SkImage* self) {
+extern "C" const SkData* C_SkImage_refEncodedData(const SkImage* self) {
     return self->refEncodedData().release();
 }
 
@@ -526,6 +558,11 @@ extern "C" void C_SkData_unref(const SkData* self) {
 
 extern "C" bool C_SkData_unique(const SkData* self) {
     return self->unique();
+}
+
+extern "C" SkData* C_SkData_shareSubset(const SkData* self, size_t offset, size_t length) {
+    auto subset = self->shareSubset(offset, length);
+    return const_cast<SkData*>(subset.release());
 }
 
 extern "C" SkData* C_SkData_MakeWithCopy(const void* data, size_t length) {
@@ -999,7 +1036,7 @@ C_SkPathTypes_Types(SkPathFillType *, SkPathDirection *, SkPathSegmentMask *, Sk
 // core/SkPathUtils.h
 //
 
-extern "C" bool C_PathUtils_FillPathWithPaint(const SkPath* src, const SkPaint* paint, SkPath* dst, const SkRect* cullRect, const SkMatrix* matrix) {
+extern "C" bool C_PathUtils_FillPathWithPaint(const SkPath* src, const SkPaint* paint, SkPathBuilder* dst, const SkRect* cullRect, const SkMatrix* matrix) {
     return skpathutils::FillPathWithPaint(*src, *paint, dst, cullRect, *matrix);
 }
 
@@ -1562,6 +1599,14 @@ extern "C" void C_SkRRect_setRect(SkRRect* self, const SkRect* rect) {
     self->setRect(*rect);
 }
 
+extern "C" bool C_SkRRect_containsPoint(const SkRRect* self, const SkPoint* point) {
+    return self->contains(*point);
+}
+
+extern "C" bool C_SkRRect_containsRect(const SkRRect* self, const SkRect* rect) {
+    return self->contains(*rect);
+}
+
 extern "C" void C_SkRRect_dumpToString(const SkRRect* self, bool asHex, SkString* str) {
     *str = self->dumpToString(asHex);
 }
@@ -1588,6 +1633,10 @@ extern "C" bool C_SkRegion_set(SkRegion* self, const SkRegion* region) {
 
 extern "C" bool C_SkRegion_quickContains(const SkRegion* self, const SkIRect* r) {
     return self->quickContains(*r);
+}
+
+extern "C" bool C_SkRegion_setRects(SkRegion* self, const SkIRect* rects, int count) {
+    return self->setRects(SkSpan(rects, count));
 }
 
 extern "C" void C_SkRegion_getBoundaryPath(const SkRegion* self, SkPath* uninitialized) {
@@ -1724,7 +1773,7 @@ extern "C" void C_SkTypeface_serialize2(const SkTypeface* self, SkWStream* strea
 }
 
 extern "C" SkTypeface* C_SkTypeface_MakeDeserialize(SkStream* stream, SkFontMgr* lastResortFontMgr) {
-    return SkTypeface::MakeDeserialize(stream, sp(lastResortFontMgr)).release();
+    return SkTypeface::MakeDeserialize(stream, sp(lastResortFontMgr), nullptr).release();
 }
 
 extern "C" void C_SkTypeface_unicharsToGlyphs(const SkTypeface* self, const SkUnichar* uni, size_t uniCount, SkGlyphID* glyphs, size_t glyphsCount) {
@@ -1749,6 +1798,10 @@ extern "C" bool C_SkTypeface_getKerningPairAdjustments(const SkTypeface* self, c
 
 extern "C" SkStreamAsset* C_SkTypeface_openStream(const SkTypeface* self, int* ttcIndex) {
     return self->openStream(ttcIndex).release();
+}
+
+extern "C" SkStreamAsset* C_SkTypeface_openExistingStream(const SkTypeface* self, int* ttcIndex) {
+    return self->openExistingStream(ttcIndex).release();
 }
 
 extern "C" void C_SkTypeface_getBounds(const SkTypeface* self, SkRect* uninitialized) {
@@ -1883,6 +1936,59 @@ extern "C" void C_SkFont_getIntercepts(
     vs->set(r);
 }
 
+extern "C" void C_SkFont_makeStrikeRef(const SkFont* self, SkStrikeRef* uninitialized) {
+    new (uninitialized) SkStrikeRef(self->makeStrikeRef());
+}
+
+extern "C" void C_SkStrikeRef_CopyConstruct(SkStrikeRef* uninitialized, const SkStrikeRef* self) {
+    new (uninitialized) SkStrikeRef(*self);
+}
+
+extern "C" void C_SkStrikeRef_destruct(SkStrikeRef* self) {
+    self->~SkStrikeRef();
+}
+
+extern "C" bool C_SkStrikeRef_isValid(const SkStrikeRef* self) {
+    return static_cast<bool>(*self);
+}
+
+extern "C" void C_SkStrikeRef_getWidths(
+    const SkStrikeRef* self,
+    const SkGlyphID* glyphs,
+    size_t glyphCount,
+    SkScalar* widths,
+    size_t widthCount) {
+    self->getWidths(SkSpan(glyphs, glyphCount), SkSpan(widths, widthCount));
+}
+
+extern "C" SkScalar C_SkStrikeRef_getWidth(const SkStrikeRef* self, SkGlyphID glyph) {
+    return self->getWidth(glyph);
+}
+
+extern "C" void C_SkStrikeRef_getWidthsStrided(
+    const SkStrikeRef* self,
+    unsigned count,
+    const uint32_t* firstGlyph,
+    unsigned glyphStride32,
+    SkScalar* firstAdvance,
+    unsigned advanceStride32) {
+    self->getWidthsStrided(count, firstGlyph, glyphStride32, firstAdvance, advanceStride32);
+}
+
+extern "C" void C_SkStrikeRef_getWidthsBounds(
+    const SkStrikeRef* self,
+    const SkGlyphID* glyphs,
+    size_t glyphCount,
+    SkScalar* widths,
+    size_t widthCount,
+    SkRect* bounds,
+    size_t boundsCount) {
+    self->getWidthsBounds(
+        SkSpan(glyphs, glyphCount),
+        SkSpan(widths, widthCount),
+        SkSpan(bounds, boundsCount));
+}
+
 extern "C" bool C_SkFont_getPath(const SkFont* self, SkGlyphID glyphID, SkPath* pathR) {
     auto path = self->getPath(glyphID);
     if (!path) {
@@ -1926,9 +2032,40 @@ C_SkFontArguments_getPalette(const SkFontArguments *self) {
     return self->getPalette();
 }
 
+extern "C" void C_SkFontArguments_setSyntheticBold(SkFontArguments* self, int syntheticBold) {
+    self->setSyntheticBold(
+        syntheticBold < 0 ? std::nullopt : std::optional<bool>(syntheticBold != 0));
+}
+
+extern "C" int C_SkFontArguments_getSyntheticBold(const SkFontArguments* self) {
+    auto syntheticBold = self->getSyntheticBold();
+    if (!syntheticBold.has_value()) {
+        return -1;
+    }
+    return syntheticBold.value() ? 1 : 0;
+}
+
+extern "C" void C_SkFontArguments_setSyntheticOblique(SkFontArguments* self,
+                                                        int syntheticOblique) {
+    self->setSyntheticOblique(
+        syntheticOblique < 0 ? std::nullopt : std::optional<bool>(syntheticOblique != 0));
+}
+
+extern "C" int C_SkFontArguments_getSyntheticOblique(const SkFontArguments* self) {
+    auto syntheticOblique = self->getSyntheticOblique();
+    if (!syntheticOblique.has_value()) {
+        return -1;
+    }
+    return syntheticOblique.value() ? 1 : 0;
+}
+
 //
 // core/SkFontMgr.h
 //
+
+static std::optional<bool> optional_bool(int value) {
+    return value < 0 ? std::nullopt : std::optional<bool>(value != 0);
+}
 
 extern "C" int C_SkFontStyleSet_count(SkFontStyleSet* self) {
     return self->count();
@@ -1972,6 +2109,59 @@ extern "C" SkTypeface* C_SkFontMgr_matchFamilyStyleCharacter(
     const char* bcp47[], int bcp47Count,
     SkUnichar character) {
     return self->matchFamilyStyleCharacter(familyName, *style, bcp47, bcp47Count, character).release();
+}
+
+struct C_SkFontMgr_Request {
+    const SkFontMgr::Request::CMapEntry* cmapEntries;
+    size_t cmapEntryCount;
+    const char** bcp47;
+    size_t bcp47Count;
+    const char* familyName;
+    const SkFontArguments::VariationPosition::Coordinate* model;
+    size_t modelCount;
+    int syntheticBold;
+    int syntheticOblique;
+};
+
+static SkFontMgr::Request to_font_mgr_request(const C_SkFontMgr_Request& cRequest) {
+    SkFontMgr::Request request{};
+    request.cmapEntries = SkSpan(cRequest.cmapEntries, cRequest.cmapEntryCount);
+    request.bcp47 = SkSpan(cRequest.bcp47, cRequest.bcp47Count);
+    request.familyName = cRequest.familyName;
+    request.model = SkSpan(cRequest.model, cRequest.modelCount);
+    request.syntheticBold = optional_bool(cRequest.syntheticBold);
+    request.syntheticOblique = optional_bool(cRequest.syntheticOblique);
+    return request;
+}
+
+extern "C" SkTypeface* C_SkFontMgr_match(
+    const SkFontMgr* self,
+    const C_SkFontMgr_Request* request) {
+    return self->match(to_font_mgr_request(*request)).release();
+}
+
+extern "C" SkTypeface* C_SkFontMgr_fallback(
+    const SkFontMgr* self,
+    const C_SkFontMgr_Request* request) {
+    return self->fallback(to_font_mgr_request(*request)).release();
+}
+
+extern "C" void C_SkFontMgr_Request_fontStyleFromModel(
+    const SkFontArguments::VariationPosition::Coordinate* model,
+    size_t modelCount,
+    SkFontStyle* uninitialized) {
+    SkFontMgr::Request request{};
+    request.model = SkSpan(model, modelCount);
+    new (uninitialized) SkFontStyle(request.fontStyleFromModel());
+}
+
+extern "C" void C_SkFontMgr_Request_SetModel(
+    const SkFontStyle* style,
+    SkFontArguments::VariationPosition::Coordinate model[4]) {
+    // C array parameters decay to element pointers. Rebuild the 4-element array type
+    // because SkFontMgr::Request::SetModel expects Coordinate(&)[4].
+    auto* model4 = reinterpret_cast<SkFontArguments::VariationPosition::Coordinate(*)[4]>(model);
+    SkFontMgr::Request::SetModel(*style, *model4);
 }
 
 extern "C" SkTypeface* C_SkFontMgr_makeFromData(const SkFontMgr* self, SkData* data, int ttcIndex) {
@@ -2480,7 +2670,7 @@ extern "C" void C_SkImageGenerator_delete(SkImageGenerator *self) {
     delete self;
 }
 
-extern "C" SkData *C_SkImageGenerator_refEncodedData(SkImageGenerator *self) {
+extern "C" const SkData *C_SkImageGenerator_refEncodedData(SkImageGenerator *self) {
     return self->refEncodedData().release();
 }
 
@@ -2700,6 +2890,10 @@ extern "C" size_t C_SkStreamAsset_getLength(const SkStreamAsset* self) {
     return self->getLength();
 }
 
+extern "C" const SkData* C_SkStreamAsset_getData(const SkStreamAsset* self) {
+    return self->getData().release();
+}
+
 extern "C" void C_SkWStream_destruct(SkWStream* self) {
     self->~SkWStream();
 }
@@ -2902,40 +3096,101 @@ extern "C" SkBlender* C_SkBlenders_Arithmetic(float k1, float k2, float k3, floa
 }
 
 //
-// effects/SkGradientShader.h
+// effects/SkGradient.h
 //
 
-extern "C" void C_SkGradientShader_Types(SkGradientShader *) {}
-extern "C" SkShader* C_SkGradientShader_MakeLinear(const SkPoint pts[2], const SkColor colors[], const SkScalar pos[], int count, SkTileMode mode, uint32_t flags, const SkMatrix* localMatrix) {
-    return SkGradientShader::MakeLinear(pts, colors, pos, count, mode, flags, localMatrix).release();
+extern "C" SkShader* C_SkShaders_LinearGradient(
+    const SkPoint pts[2],
+    const SkColor4f* colors,
+    size_t colorCount,
+    const float* pos,
+    size_t posCount,
+    SkTileMode mode,
+    SkColorSpace* colorSpace,
+    const SkGradient::Interpolation* interpolation,
+    const SkMatrix* localMatrix
+) {
+    SkGradient::Colors gradColors(
+        SkSpan<const SkColor4f>(colors, colorCount),
+        SkSpan<const float>(pos, posCount),
+        mode,
+        sp(colorSpace)
+    );
+    
+    SkGradient grad(gradColors, *interpolation);
+    return SkShaders::LinearGradient(pts, grad, localMatrix).release();
 }
 
-extern "C" SkShader* C_SkGradientShader_MakeLinearWithInterpolation(const SkPoint pts[2], const SkColor4f colors[], SkColorSpace* colorSpace, const SkScalar pos[], int count, SkTileMode mode, const SkGradientShader::Interpolation* interpolation, const SkMatrix* localMatrix) {
-    return SkGradientShader::MakeLinear(pts, colors, sp(colorSpace), pos, count, mode, *interpolation, localMatrix).release();
+extern "C" SkShader* C_SkShaders_RadialGradient(
+    const SkPoint* center,
+    float radius,
+    const SkColor4f* colors,
+    size_t colorCount,
+    const float* pos,
+    size_t posCount,
+    SkTileMode mode,
+    SkColorSpace* colorSpace,
+    const SkGradient::Interpolation* interpolation,
+    const SkMatrix* localMatrix
+) {
+    SkGradient::Colors gradColors(
+        SkSpan<const SkColor4f>(colors, colorCount),
+        SkSpan<const float>(pos, posCount),
+        mode,
+        sp(colorSpace)
+    );
+    
+    SkGradient grad(gradColors, *interpolation);
+    return SkShaders::RadialGradient(*center, radius, grad, localMatrix).release();
 }
 
-extern "C" SkShader* C_SkGradientShader_MakeRadial(const SkPoint* center, SkScalar radius, const SkColor colors[], const SkScalar pos[], int count, SkTileMode mode, uint32_t flags, const SkMatrix* localMatrix) {
-    return SkGradientShader::MakeRadial(*center, radius, colors, pos, count, mode, flags, localMatrix).release();
+extern "C" SkShader* C_SkShaders_TwoPointConicalGradient(
+    const SkPoint* start,
+    float startRadius,
+    const SkPoint* end,
+    float endRadius,
+    const SkColor4f* colors,
+    size_t colorCount,
+    const float* pos,
+    size_t posCount,
+    SkTileMode mode,
+    SkColorSpace* colorSpace,
+    const SkGradient::Interpolation* interpolation,
+    const SkMatrix* localMatrix
+) {
+    SkGradient::Colors gradColors(
+        SkSpan<const SkColor4f>(colors, colorCount),
+        SkSpan<const float>(pos, posCount),
+        mode,
+        sp(colorSpace)
+    );
+    
+    SkGradient grad(gradColors, *interpolation);
+    return SkShaders::TwoPointConicalGradient(*start, startRadius, *end, endRadius, grad, localMatrix).release();
 }
 
-extern "C" SkShader* C_SkGradientShader_MakeRadialWithInterpolation(const SkPoint* center, SkScalar radius, const SkColor4f colors[], SkColorSpace* colorSpace, const SkScalar pos[], int count, SkTileMode mode, const SkGradientShader::Interpolation* interpolation, const SkMatrix* localMatrix) {
-    return SkGradientShader::MakeRadial(*center, radius, colors, sp(colorSpace), pos, count, mode, *interpolation, localMatrix).release();
-}
-
-extern "C" SkShader* C_SkGradientShader_MakeTwoPointConical(const SkPoint* start, SkScalar startRadius, const SkPoint* end, SkScalar endRadius, const SkColor colors[], const SkScalar pos[], int count, SkTileMode mode, uint32_t flags, const SkMatrix* localMatrix) {
-    return SkGradientShader::MakeTwoPointConical(*start, startRadius, *end, endRadius, colors, pos, count, mode, flags, localMatrix).release();
-}
-
-extern "C" SkShader* C_SkGradientShader_MakeTwoPointConicalWithInterpolation(const SkPoint* start, SkScalar startRadius, const SkPoint* end, SkScalar endRadius, const SkColor4f colors[], SkColorSpace* colorSpace, const SkScalar pos[], int count, SkTileMode mode, const SkGradientShader::Interpolation* interpolation, const SkMatrix* localMatrix) {
-    return SkGradientShader::MakeTwoPointConical(*start, startRadius, *end, endRadius, colors, sp(colorSpace), pos, count, mode, *interpolation, localMatrix).release();
-}
-
-extern "C" SkShader* C_SkGradientShader_MakeSweep(SkScalar cx, SkScalar cy, const SkColor colors[], const SkScalar pos[], int count, SkTileMode mode, SkScalar startAngle, SkScalar endAngle, uint32_t flags, const SkMatrix* localMatrix) {
-    return SkGradientShader::MakeSweep(cx, cy, colors, pos, count, mode, startAngle, endAngle, flags, localMatrix).release();
-}
-
-extern "C" SkShader* C_SkGradientShader_MakeSweepWithInterpolation(SkScalar cx, SkScalar cy, const SkColor4f colors[], SkColorSpace* colorSpace, const SkScalar pos[], int count, SkTileMode mode, SkScalar startAngle, SkScalar endAngle, const SkGradientShader::Interpolation* interpolation, const SkMatrix* localMatrix) {
-    return SkGradientShader::MakeSweep(cx, cy, colors, sp(colorSpace), pos, count, mode, startAngle, endAngle, *interpolation, localMatrix).release();
+extern "C" SkShader* C_SkShaders_SweepGradient(
+    const SkPoint* center,
+    float startAngle,
+    float endAngle,
+    const SkColor4f* colors,
+    size_t colorCount,
+    const float* pos,
+    size_t posCount,
+    SkTileMode mode,
+    SkColorSpace* colorSpace,
+    const SkGradient::Interpolation* interpolation,
+    const SkMatrix* localMatrix
+) {
+    SkGradient::Colors gradColors(
+        SkSpan<const SkColor4f>(colors, colorCount),
+        SkSpan<const float>(pos, posCount),
+        mode,
+        sp(colorSpace)
+    );
+    
+    SkGradient grad(gradColors, *interpolation);
+    return SkShaders::SweepGradient(*center, startAngle, endAngle, grad, localMatrix).release();
 }
 
 //
@@ -3458,11 +3713,13 @@ C_SkImageFilters_SpotLitSpecular(const SkPoint3 &location,
 }
 
 SkImageFilter *C_SkImageFilters_RuntimeShader(
-    const SkRuntimeShaderBuilder &builder, const char *childShaderName,
-    size_t childShaderNameCount, SkImageFilter *input) {
+    const SkRuntimeShaderBuilder &builder, SkScalar sampleRadius,
+    const char *childShaderName, size_t childShaderNameCount,
+    SkImageFilter *input, bool restrictOutputToInputBounds) {
   auto imageFilter = SkImageFilters::RuntimeShader(
-      builder, std::string_view(childShaderName, childShaderNameCount),
-      sp(input));
+      builder, sampleRadius,
+      std::string_view(childShaderName, childShaderNameCount), sp(input),
+      restrictOutputToInputBounds);
   return imageFilter.release();
 }
 }
@@ -3530,13 +3787,13 @@ bool C_SkPngRustEncoder_Encode(
 
 // SkJpegEncoder
 
+#if defined(SK_CODEC_ENCODES_JPEG)
 bool C_SkJpegEncoder_Encode(SkWStream* stream, const SkPixmap* pixmap, 
     int quality,
     SkJpegEncoder::Downsample downsample, 
     SkJpegEncoder::AlphaOption alphaOption, 
     const SkData* xmpMetadata, 
     const SkEncodedOrigin* origin) {
-
     SkJpegEncoder::Options options;
     options.fQuality = quality;
     options.fDownsample = downsample;
@@ -3556,7 +3813,6 @@ bool C_SkJpegEncoder_EncodeYUVAPixmaps(SkWStream* stream, const SkYUVAPixmaps* s
     SkJpegEncoder::AlphaOption alphaOption, 
     const SkData* xmpMetadata,
     const SkEncodedOrigin* origin) {
-
     SkJpegEncoder::Options options;
     options.fQuality = quality;
     options.fDownsample = downsample;
@@ -3575,7 +3831,6 @@ SkData* C_SkJpegEncoder_EncodePixmap(const SkPixmap* src,
     SkJpegEncoder::AlphaOption alphaOption, 
     const SkData* xmpMetadata,
     const SkEncodedOrigin* origin) {
-
     SkJpegEncoder::Options options;
     options.fQuality = quality;
     options.fDownsample = downsample;
@@ -3594,7 +3849,6 @@ SkData* C_SkJpegEncoder_EncodeImage(GrDirectContext* ctx, const SkImage* img,
     SkJpegEncoder::AlphaOption alphaOption, 
     const SkData* xmpMetadata,
     const SkEncodedOrigin* origin) {
-
     SkJpegEncoder::Options options;
     options.fQuality = quality;
     options.fDownsample = downsample;
@@ -3606,6 +3860,7 @@ SkData* C_SkJpegEncoder_EncodeImage(GrDirectContext* ctx, const SkImage* img,
 
     return SkJpegEncoder::Encode(ctx, img, options).release();
 }
+#endif
 
 } // extern "C"
 
@@ -3613,6 +3868,7 @@ SkData* C_SkJpegEncoder_EncodeImage(GrDirectContext* ctx, const SkImage* img,
 // docs/SkPDFDocument.h
 //
 
+#if defined(SK_SUPPORT_PDF)
 extern "C" void C_SkPDF_AttributeList_destruct(SkPDF::AttributeList *self) {
     self->~AttributeList();
 }
@@ -3620,6 +3876,19 @@ extern "C" void C_SkPDF_AttributeList_destruct(SkPDF::AttributeList *self) {
 extern "C" void C_SkPDF_AttributeList_appendFloatArray(SkPDF::AttributeList *self, const char *owner, const char *name, const float *const value, size_t len) {
     std::vector<float> v(value, value + len);
     self->appendFloatArray(owner, name, v);
+}
+
+extern "C" void C_SkPDF_AttributeList_appendName(SkPDF::AttributeList *self, const char *owner, const char *name, const char *value) {
+    self->appendName(owner, name, value);
+}
+
+extern "C" void C_SkPDF_AttributeList_appendTextString(SkPDF::AttributeList *self, const char *owner, const char *name, const char *value) {
+    self->appendTextString(owner, name, value);
+}
+
+extern "C" void C_SkPDF_AttributeList_appendNodeIdArray(SkPDF::AttributeList *self, const char *owner, const char *name, const int *nodeIds, size_t len) {
+    std::vector<int> ids(nodeIds, nodeIds + len);
+    self->appendNodeIdArray(owner, name, ids);
 }
 
 extern "C" SkPDF::StructureElementNode *C_SkPDF_StructureElementNode_new() {
@@ -3684,6 +3953,7 @@ extern "C" SkDocument* C_SkPDF_MakeDocument(SkWStream* stream, const SkPDF::Meta
 extern "C" void C_SkPDF_SetNodeId(SkCanvas* dst, int nodeID) {
     return SkPDF::SetNodeId(dst, nodeID);
 }
+#endif
 
 //
 // pathops/

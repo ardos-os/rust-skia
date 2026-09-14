@@ -4,8 +4,8 @@ use skia_bindings::{self as sb, SkPath, SkPath_Iter, SkPath_RawIter};
 
 use crate::PathIter;
 use crate::{
-    interop::DynamicMemoryWStream, path_types, prelude::*, scalar, Data, Matrix, PathDirection,
-    PathFillType, PathVerb, Point, RRect, Rect, Vector,
+    Data, Matrix, PathDirection, PathFillType, PathVerb, Point, RRect, Rect, Vector,
+    interop::DynamicMemoryWStream, path_types, prelude::*, scalar,
 };
 
 /// [`Path`] contain geometry. [`Path`] may be empty, or contain one or more verbs that
@@ -22,8 +22,7 @@ use crate::{
 /// outside the geometry. [`Path`] also describes the winding rule used to fill
 /// overlapping contours.
 ///
-/// Internally, [`Path`] lazily computes metrics likes bounds and convexity. Call
-/// [`Path::update_bounds_cache`] to make [`Path`] thread safe.
+/// Internally, [`Path`] lazily computes convexity.
 pub type Path = Handle<SkPath>;
 unsafe impl Send for Path {}
 
@@ -114,8 +113,7 @@ impl fmt::Debug for Path {
 /// outside the geometry. [`Path`] also describes the winding rule used to fill
 /// overlapping contours.
 ///
-/// Internally, [`Path`] lazily computes metrics likes bounds and convexity. Call
-/// [`Path::update_bounds_cache`] to make [`Path`] thread safe.
+/// Internally, [`Path`] lazily computes convexity.
 impl Path {
     /// Create a new path with the specified spans.
     ///
@@ -673,7 +671,7 @@ impl Path {
     /// Returns: the number of points in the path
     ///
     /// example: <https://fiddle.skia.org/c/@Path_getPoints>
-    #[deprecated(since = "0.91.0")]
+    #[deprecated(since = "0.91.0", note = "use points()")]
     pub fn get_points(&self, points: &mut [Point]) -> usize {
         unsafe {
             sb::C_SkPath_getPoints(
@@ -707,25 +705,24 @@ impl Path {
         unsafe { self.native().approximateBytesUsed() }
     }
 
-    /// Returns minimum and maximum axes values of [`Point`] array.
-    /// Returns (0, 0, 0, 0) if [`Path`] contains no points. Returned bounds width and height may
-    /// be larger or smaller than area affected when [`Path`] is drawn.
+    /// Returns the min/max of the path's 'trimmed' points. The trimmed points are all of the
+    /// points in the path, with the exception of the path having more than one contour, and the
+    /// final contour containing only a [`Verb::Move`]. In that case the trailing [`Verb::Move`] point
+    /// is ignored when computing the bounds.
     ///
-    /// [`Rect`] returned includes all [`Point`] added to [`Path`], including [`Point`] associated with
-    /// [`Verb::Move`] that define empty contours.
+    /// If the path has no verbs, or the path contains non-finite values,
+    /// then `{0, 0, 0, 0}` is returned. (see `is_finite`())
     ///
-    /// Returns: bounds of all [`Point`] in [`Point`] array
+    /// Returns: bounds of the path's points
     pub fn bounds(&self) -> &Rect {
         Rect::from_native_ref(unsafe { &*sb::C_SkPath_getBounds(self.native()) })
     }
 
-    /// Updates internal bounds so that subsequent calls to `bounds()` are instantaneous.
-    /// Unaltered copies of [`Path`] may also access cached bounds through `bounds()`.
-    ///
-    /// For now, identical to calling `bounds()` and ignoring the returned value.
-    ///
-    /// Call to prepare [`Path`] subsequently drawn from multiple threads,
-    /// to avoid a race condition where each draw separately computes the bounds.
+    /// Calls [`Self::bounds()`] and ignores the result.
+    #[deprecated(
+        since = "0.100.0",
+        note = "SkPath bounds are no longer computed lazily"
+    )]
     pub fn update_bounds_cache(&mut self) -> &mut Self {
         self.bounds();
         self
@@ -771,11 +768,6 @@ impl Path {
         }
     }
 }
-
-/// Four oval parts with radii (rx, ry) start at last [`Path`] [`Point`] and ends at (x, y).
-/// ArcSize and Direction select one of the four oval parts.
-pub use sb::SkPath_ArcSize as ArcSize;
-variant_name!(ArcSize::Small);
 
 impl Path {
     /// Approximates conic with quad array. Conic is constructed from start [`Point`] p0,
@@ -1255,7 +1247,7 @@ impl Iterator for RawIter<'_> {
         let mut points = [Point::default(); Verb::MAX_POINTS];
 
         let verb = unsafe { self.native_mut().next(points.native_mut().as_mut_ptr()) };
-        (verb != Verb::Done).then_some((verb, points[0..verb.points()].into()))
+        (verb != Verb::Done).then(|| (verb, points[0..verb.points()].into()))
     }
 }
 

@@ -6,7 +6,7 @@ use std::{
 use super::platform;
 use crate::build_support::{
     cargo,
-    features::{self, feature, Features},
+    features::{self, Features, feature},
 };
 
 pub const SKIA_OUTPUT_DIR: &str = "skia";
@@ -19,6 +19,9 @@ pub mod lib {
     pub const SK_SHAPER: &str = "skshaper";
     pub const SK_PARAGRAPH: &str = "skparagraph";
     pub const SVG: &str = "svg";
+    pub const SKOTTIE: &str = "skottie";
+    pub const SKSG: &str = "sksg";
+    pub const JSON_READER: &str = "jsonreader";
     pub const SK_RESOURCES: &str = "skresources";
     pub const SK_UNICODE_CORE: &str = "skunicode_core";
     pub const SK_UNICODE_ICU: &str = "skunicode_icu";
@@ -77,6 +80,15 @@ impl BinariesConfiguration {
             ninja_built_libraries.push(lib::SVG.into());
             ninja_built_libraries.push(lib::SK_RESOURCES.into());
         }
+        if features[feature::SKOTTIE] {
+            ninja_built_libraries.push(lib::SKOTTIE.into());
+            ninja_built_libraries.push(lib::SKSG.into());
+            ninja_built_libraries.push(lib::JSON_READER.into());
+            // skottie depends on skresources, add it if not already added by SVG
+            if !features[feature::SVG] {
+                ninja_built_libraries.push(lib::SK_RESOURCES.into());
+            }
+        }
 
         let link_libraries = platform::link_libraries(features, &target);
 
@@ -117,13 +129,29 @@ impl BinariesConfiguration {
     pub fn commit_to_cargo(&self) {
         cargo::add_link_search(self.output_directory.to_str().unwrap());
 
-        // On Linux, the order is significant, first the static libraries we built, and then
-        // the system libraries.
-
         let target = cargo::target();
 
+        // On Linux, the order is significant, first the static libraries we built, and then
+        // the system libraries.
         cargo::add_static_link_libs(&target, self.built_libraries(true));
         cargo::add_link_libs(&self.link_libraries);
+    }
+
+    pub fn copy_emscripten_ninja_archives_for_linking(&self) {
+        // Since Skia milestone 148, the wasm GN toolchain emits static archives as
+        // `*.wasm.a`.
+        for lib in &self.ninja_built_libraries {
+            let from = self.output_directory.join(format!("lib{lib}.wasm.a"));
+            let to = self.output_directory.join(format!("lib{lib}.a"));
+            fs::copy(&from, &to).unwrap_or_else(|e| {
+                panic!(
+                    "failed to prepare emscripten archive for linking: from '{}' to '{}': {}",
+                    from.display(),
+                    to.display(),
+                    e
+                )
+            });
+        }
     }
 
     /// Import library and additional files from `from_dir` to the output directory.
@@ -133,6 +161,7 @@ impl BinariesConfiguration {
     }
 
     /// Export library and additional files from the output directory to a `to_dir`.
+    #[allow(unused)]
     pub fn export(&self, to_dir: &Path) -> io::Result<()> {
         let output_directory = &self.output_directory;
         self.copy_libs_and_additional_files(output_directory, to_dir, true)

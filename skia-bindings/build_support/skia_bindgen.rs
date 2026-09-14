@@ -60,14 +60,26 @@ impl Configuration {
             if features[feature::D3D] {
                 sources.push("src/d3d.cpp".into());
             }
-            if features.gpu() {
+            if features.has_gpu_engine() {
                 sources.push("src/gpu.cpp".into());
+            }
+            if features.ganesh() {
+                sources.push("src/ganesh.cpp".into());
+            }
+            if features.graphite() {
+                sources.push("src/graphite.cpp".into());
             }
             if features[feature::TEXTLAYOUT] {
                 sources.extend(vec!["src/shaper.cpp".into(), "src/paragraph.cpp".into()]);
             }
             if features[feature::SVG] {
                 sources.push("src/svg.cpp".into());
+            }
+            if features[feature::SKOTTIE] {
+                sources.push("src/skottie.cpp".into());
+            }
+            if features[feature::SVG] || features[feature::SKOTTIE] {
+                sources.push("src/skresources.cpp".into());
             }
             if features[feature::WEBP_ENCODE] {
                 sources.push("src/webp-encode.cpp".into());
@@ -128,15 +140,27 @@ pub fn generate_bindings(
         .blocklist_type("GrContextPriv")
         .raw_line("pub enum GrContextPriv {}")
         .blocklist_function("GrContext_priv.*")
+        .blocklist_function("SkContext_priv.*")
         .blocklist_function("SkDeferredDisplayList_priv.*")
         .raw_line("pub enum SkVerticesPriv {}")
         .blocklist_type("SkVerticesPriv")
         .blocklist_function("SkVertices_priv.*")
         .blocklist_function("std::bitset_flip.*")
-        // Vulkan reexports that got swallowed by making them opaque.
-        // (these can not be allowlisted by a extern "C" function)
+        // Vulkan reexports that cannot be reached from an extern "C" function.
+        .allowlist_type("VkCommandBuffer")
+        .allowlist_type("VkExtent2D")
+        .allowlist_type("VkImage")
+        .allowlist_type("VkImageTiling")
+        .allowlist_type("VkImageUsageFlags")
+        .allowlist_type("VkOffset2D")
+        .allowlist_type("VkPhysicalDevice")
         .allowlist_type("VkPhysicalDeviceFeatures")
-        .allowlist_type("VkPhysicalDeviceFeatures2").
+        .allowlist_type("VkPhysicalDeviceFeatures2")
+        .allowlist_type("VkQueue")
+        .allowlist_type("VkRect2D")
+        .allowlist_type("VkRenderPass")
+        .allowlist_type("VkSemaphore")
+        .allowlist_type("VkSharingMode").
         // m91: These functions are not actually implemented.
         blocklist_function("SkCustomTypefaceBuilder_setGlyph[123].*")
         // m113: `SkUnicode` pulls in an impl block that forwards static functions that may not be
@@ -152,19 +176,6 @@ pub fn generate_bindings(
         .clang_arg(format!("-std=c++{CPP_VERSION}"))
         .clang_args(&["-x", "c++"])
         .clang_arg("-v");
-
-    // gpu builds
-
-    if build.features.gpu() {
-        builder = builder
-            // bindgen 0.70 alignment problems on i686-linux-android
-            .blocklist_type("GrBackendFormat_AnyFormatData")
-            .raw_line("#[repr(C, align(8))] pub struct GrBackendFormat_AnyFormatData { data: [u8;GrBackendFormat_kMaxSubclassSize + 1] }")
-            .blocklist_type("GrBackendTexture_AnyTextureData")
-            .raw_line("#[repr(C, align(8))] pub struct GrBackendTexture_AnyTextureData { data: [u8;GrBackendTexture_kMaxSubclassSize + 1] }")
-            .blocklist_type("GrBackendRenderTarget_AnyRenderTargetData")
-            .raw_line("#[repr(C, align(8))] pub struct GrBackendRenderTarget_AnyRenderTargetData { data: [u8;GrBackendRenderTarget_kMaxSubclassSize + 1] }");
-    }
 
     // Don't generate destructors for Windows targets:
     // <https://github.com/rust-skia/rust-skia/issues/318>
@@ -231,11 +242,12 @@ pub fn generate_bindings(
         cc_args.push(std_cpp_arg);
     }
 
-    // Disable RTTI. Otherwise RustWStream may cause compilation errors.
-    bindgen_args.push("-fno-rtti".into());
+    // Disable RTTI on non-MSVC targets. On MSVC, RTTI must stay enabled (/GR)
+    // because std::function in <functional> uses typeid, which fails with /GR-.
     if target.builds_with_msvc() {
-        cc_args.push("/GR-".into());
+        cc_args.push("/GR".into());
     } else {
+        bindgen_args.push("-fno-rtti".into());
         cc_args.push("-fno-rtti".into());
     }
 
@@ -243,8 +255,9 @@ pub fn generate_bindings(
     {
         let args = platform::bindgen_and_cc_args(&target, sysroot);
 
-        bindgen_args.extend(args.args.clone());
-        cc_args.extend(args.args);
+        bindgen_args.extend(args.bindgen_only_args);
+        bindgen_args.extend(args.shared_args.clone());
+        cc_args.extend(args.shared_args);
 
         let mut target_str = &target.to_string();
         let mut override_target = false;
@@ -472,6 +485,19 @@ const OPAQUE_TYPES: &[&str] = &[
     "std::__tree.*",
     // libstdc++ 10 on Linux (since m143, c++20)
     "std::strong_ordering",
+    // skottie internal types with layout issues
+    "skottie::internal::TextAnimator",
+    "skottie::internal::TextAnimator_AnimatedProps",
+    "skottie::internal::TextAdapter",
+    "skottie::VectorValue",
+    "skottie::ColorValue",
+    "sksg::PaintNode",
+    "sksg::Color",
+    "sksg::BlurImageFilter",
+    // m147
+    "std::unordered_map.*",
+    // Graphite types that expose std::unordered_set in public fields
+    "skgpu::graphite::Recording",
 ];
 
 const BLOCKLISTED_TYPES: &[&str] = &[
@@ -622,7 +648,7 @@ const ENUM_REWRITES: &[EnumEntry] = &[
     ("Result", rewrite::k_xxx),
     // SkMatrix_ScaleToFit
     ("ScaleToFit", rewrite::k_xxx_name),
-    // SkPath_*
+    // SkPathBuilder_*
     ("ArcSize", rewrite::k_xxx_name),
     ("AddPathMode", rewrite::k_xxx_name),
     // SkPathBuilder_*
@@ -755,6 +781,13 @@ const ENUM_REWRITES: &[EnumEntry] = &[
     ("IsAnimated", rewrite::k_xxx),
     // m142: PngRustEncoder::CompressionLevel
     ("CompressionLevel", rewrite::k_opt_xxx),
+    // m148: SkShapers::CT::LineBreakMode
+    ("LineBreakMode", rewrite::k_xxx),
+    // graphite: skgpu::graphite::InsertStatus::V (the class-enum migration
+    // shim for Context::insertRecording's status)
+    ("V", rewrite::k_xxx),
+    // graphite: skgpu::graphite::SyncToCpu
+    ("SyncToCpu", rewrite::k_xxx),
 ];
 
 pub(crate) mod rewrite {
@@ -834,7 +867,10 @@ pub(crate) mod definitions {
     };
 
     use super::env;
-    use crate::build_support::features::{self, feature};
+    use crate::build_support::{
+        cargo,
+        features::{self, feature},
+    };
 
     /// A preprocessor definition.
     pub type Definition = (String, Option<String>);
@@ -914,8 +950,11 @@ pub(crate) mod definitions {
         use_system_libraries: bool,
     ) -> Vec<PathBuf> {
         let mut files = vec!["obj/skia.ninja".into()];
-        if features.gpu() {
+        if features.ganesh() {
             files.push("obj/gpu.ninja".into());
+        }
+        if features.graphite() {
+            files.push("obj/graphite.ninja".into());
         }
         if features[feature::TEXTLAYOUT] {
             files.extend(vec![
@@ -924,13 +963,21 @@ pub(crate) mod definitions {
                 "obj/modules/skunicode/skunicode_core.ninja".into(),
                 "obj/modules/skunicode/skunicode_icu.ninja".into(),
             ]);
-            // shaper.cpp includes SkLoadICU.h
-            if !use_system_libraries {
+            // shaper.cpp includes SkLoadICU.h — skip bundled ICU ninja when
+            // system ICU is active (either via SKIA_USE_SYSTEM_LIBRARIES or
+            // skia_use_system_icu=true in SKIA_GN_ARGS).
+            let system_icu = use_system_libraries
+                || cargo::env_var("SKIA_GN_ARGS")
+                    .is_some_and(|args| args.contains("skia_use_system_icu=true"));
+            if !system_icu {
                 files.push("obj/third_party/icu/icu.ninja".into())
             }
         }
         if features[feature::SVG] {
             files.push("obj/modules/svg/svg.ninja".into());
+        }
+        if features[feature::SKOTTIE] {
+            files.push("obj/modules/skottie/skottie.ninja".into());
         }
         files
     }

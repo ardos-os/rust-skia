@@ -19,6 +19,11 @@ fn main() -> Result<(), io::Error> {
 
     let features = {
         let mut features = features::Features::from_cargo_env();
+        if features.backend_without_engine() {
+            return Err(io::Error::other(
+                "the `vulkan` and `metal` features require at least one rendering engine: `ganesh` or `graphite`",
+            ));
+        }
         let missing_dependencies = features.missing_dependencies();
         if !missing_dependencies.is_empty() {
             return Err(io::Error::other(format!(
@@ -193,6 +198,9 @@ fn build_from_source(
         skia::env::gn_command(),
         offline,
     );
+    if final_configuration.target.is_emscripten() {
+        binaries_config.copy_emscripten_ninja_archives_for_linking();
+    }
 
     final_configuration
 }
@@ -262,11 +270,21 @@ fn generate_bindings(
 /// On docs.rs, rustdoc runs inside a container with no networking, so copy a pre-generated
 /// `bindings.rs` file.
 fn fake_bindings() -> Result<(), io::Error> {
+    let source = std::path::Path::new("bindings_docs.rs");
+    if !source.exists() {
+        return Err(io::Error::other(
+            "bindings_docs.rs is missing from the published skia-bindings \
+             tarball. The release Makefile must run `make publish-bindings-docs` \
+             (not `make publish-bindings`) so the documentation bindings end up \
+             in the tarball. Without this file, docs.rs builds of skia-safe and \
+             every downstream crate fail here. See \
+             https://github.com/rust-skia/rust-skia/issues/720",
+        ));
+    }
     println!("COPYING bindings_docs.rs to OUT_DIR/skia/bindings.rs");
-    let bindings_target = cargo::output_directory()
-        .join(binaries_config::SKIA_OUTPUT_DIR)
-        .join("bindings.rs");
-    fs::copy("bindings_docs.rs", bindings_target).map(|_| ())
+    let bindings_parent = cargo::output_directory().join(binaries_config::SKIA_OUTPUT_DIR);
+    fs::create_dir_all(&bindings_parent)?;
+    fs::copy(source, bindings_parent.join("bindings.rs")).map(|_| ())
 }
 
 /// Environment variables used by this build script.

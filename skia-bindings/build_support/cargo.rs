@@ -73,6 +73,10 @@ impl Target {
         self.system == "windows"
     }
 
+    pub fn is_emscripten(&self) -> bool {
+        self.system == "emscripten"
+    }
+
     pub fn builds_with_msvc(&self) -> bool {
         self.abi.as_deref() == Some("msvc")
     }
@@ -106,11 +110,7 @@ impl Target {
 
 impl Display for Target {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}-{}-{}",
-            &self.architecture, &self.vendor, &self.system
-        )?;
+        write!(f, "{}-{}-{}", self.architecture, self.vendor, self.system)?;
 
         if let Some(ref abi) = self.abi {
             write!(f, "-{abi}")

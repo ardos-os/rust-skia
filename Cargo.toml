@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "skia-safe",
     "skia-svg-macros",
@@ -13,7 +13,8 @@ exclude = [
 ]
 
 [workspace.package]
-rust-version = "1.82"
+edition = "2024"
+rust-version = "1.85"
 
 [profile.release]
 # We want to build skia-org with with lto="thin"

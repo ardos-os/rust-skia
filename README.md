@@ -1,11 +1,11 @@
 # <img alt="" width="48" align="top" src="artwork/rust-skia-icon_512x512.png"/> Safe Rust bindings for the [Skia Graphics Library](https://skia.org/).
 
-[![crates.io](https://img.shields.io/crates/v/skia-safe)](https://crates.io/crates/skia-safe) [![license](https://img.shields.io/crates/l/skia-safe)](LICENSE) [![Windows QA](https://github.com/rust-skia/rust-skia/actions/workflows/windows-qa.yaml/badge.svg?branch=master)](https://github.com/rust-skia/rust-skia/actions/workflows/windows-qa.yaml) [![Linux QA](https://github.com/rust-skia/rust-skia/actions/workflows/linux-qa.yaml/badge.svg?branch=master)](https://github.com/rust-skia/rust-skia/actions/workflows/linux-qa.yaml) [![macOS QA](https://github.com/rust-skia/rust-skia/actions/workflows/macos-qa.yaml/badge.svg?branch=master)](https://github.com/rust-skia/rust-skia/actions/workflows/macos-qa.yaml)
+[![crates.io](https://img.shields.io/crates/v/skia-safe)](https://crates.io/crates/skia-safe) [![license](https://img.shields.io/crates/l/skia-safe)](LICENSE) [![docs.rs](https://docs.rs/skia-safe/badge.svg)](https://docs.rs/skia-safe) [![Windows QA](https://github.com/rust-skia/rust-skia/actions/workflows/windows-qa.yaml/badge.svg?branch=master)](https://github.com/rust-skia/rust-skia/actions/workflows/windows-qa.yaml) [![Linux QA](https://github.com/rust-skia/rust-skia/actions/workflows/linux-qa.yaml/badge.svg?branch=master)](https://github.com/rust-skia/rust-skia/actions/workflows/linux-qa.yaml) [![macOS QA](https://github.com/rust-skia/rust-skia/actions/workflows/macos-qa.yaml/badge.svg?branch=master)](https://github.com/rust-skia/rust-skia/actions/workflows/macos-qa.yaml)
 
-Skia Submodule Status: chrome/m143 ([upstream changes][skia-upstream], [our changes][skia-ours]).
+Skia Submodule Status: chrome/m153 ([upstream changes][skia-upstream], [our changes][skia-ours]).
 
-[skia-upstream]: https://github.com/rust-skia/skia/compare/m143-0.90.0...google:chrome/m143
-[skia-ours]: https://github.com/google/skia/compare/chrome/m143...rust-skia:m143-0.90.0
+[skia-upstream]: https://github.com/rust-skia/skia/compare/m153-0.101.2...google:chrome/m153
+[skia-ours]: https://github.com/google/skia/compare/chrome/m153...rust-skia:m153-0.101.2
 
 ## About
 
@@ -15,7 +15,7 @@ This project provides _up to date_ safe bindings that bridge idiomatic Rust with
 
 ### Documentation
 
-Because we [can't build on docs.rs](https://docs.rs/crate/skia-safe/0.34.0/builds), the `cargo doc` output for skia-safe is manually created and uploaded to [rust-skia.github.io](https://rust-skia.github.io/doc/skia_safe).
+The skia-safe API documentation is available on [docs.rs](https://docs.rs/skia-safe).
 
 We (slowly) [add more documentation](https://github.com/rust-skia/rust-skia/issues/446) by converting Skia's Doxygen comments to Rust.
 
@@ -185,6 +185,10 @@ _Notes:_
 
 Compilation to iOS is supported on macOS targeting the iOS simulator (`--target x86_64-apple-ios`) and 64 bit ARM devices (`--target aarch64-apple-ios`). The ARM64**e** architecture is [not supported yet](https://github.com/rust-lang/rust/issues/73628).
 
+### For visionOS
+
+Compilation to visionOS is supported on macOS targeting visionOS devices (`--target aarch64-apple-visionos`) and the visionOS simulator (`--target aarch64-apple-visionos-sim`). These are Rust [tier 3 targets](https://doc.rust-lang.org/rustc/platform-support.html), so a nightly toolchain and `-Z build-std` are required, and the visionOS SDK must be installed via Xcode. Skia itself has no dedicated visionOS configuration, so it is built using its iOS code paths against the visionOS (`xros`) SDK. Prebuilt binaries are not provided; Skia is built from source. Only Metal is available as a GPU backend (visionOS has no OpenGL).
+
 ### For WebAssembly
 
 Install `emscripten` version 3.1.57 or superior and make sure that llvm / clang 16+ is installed. In the examples below, we assume
@@ -260,7 +264,13 @@ cargo run --example gl-window --features gl,x11
 An example application that opens a Window and renders a blue rectangle using [Vulkano](https://github.com/vulkano-rs/vulkano) (contributed by [@samizdatco](https://github.com/samizdatco) in [#1066](https://github.com/rust-skia/rust-skia/pull/1066))
 
 ```bash
-cargo run --example vulkan-window --features "vulkan"
+cargo run --example vulkan-window --features "ganesh,vulkan"
+```
+
+To enable Vulkan validation layer messages and debug output in this example:
+
+```bash
+cargo run --example vulkan-window --features "ganesh,vulkan" -- --validate
 ```
 
 To add Vulkan support to your system, the easiest way is to install the [LunarG SDK](https://vulkan.lunarg.com/sdk/home), and enable "System Global Installation" in the installer.
@@ -332,6 +342,7 @@ More details can be found at [CONTRIBUTING.md](https://github.com/rust-skia/rust
   added build support for the `wasm32-unknown-emscripten` target.
 - Osei Fortune ([@triniwiz](https://github.com/triniwiz)) and Savchenko Ivan ([@Aiving](https://github.com/Aiving))
   contributed rendering SVG files.
+- Maxime Vincent ([@maximevince](https://github.com/maximevince)) contributed the Skottie/Lottie support and examples.
 
 ## Maintainers
 

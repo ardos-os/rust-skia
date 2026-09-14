@@ -6,6 +6,7 @@
     #define SK_GL
 #endif
 
+#include "include/core/SkContext.h"
 #include "include/gpu/ganesh/GrBackendSurface.h"
 #include "include/gpu/ganesh/GrDirectContext.h"
 #include "include/gpu/ganesh/gl/GrGLBackendSurface.h"
@@ -163,12 +164,26 @@ extern "C" GrDirectContext* C_GrDirectContext_MakeGL(GrGLInterface* interface, c
     return GrDirectContexts::MakeGL().release();
 }
 
+extern "C" SkContext* C_SkContexts_MakeGaneshGL(
+    GrGLInterface* interface,
+    const SkContextOptions* options) {
+    return SkContexts::MakeGanesh(sp(interface), *options).release();
+}
+
 //
 // gpu/ganesh/gl
 //
 
 extern "C" void C_GrBackendFormats_ConstructGL(GrBackendFormat* uninitialized, GrGLenum format, GrGLenum target) {
     new (uninitialized) GrBackendFormat(GrBackendFormats::MakeGL(format, target));
+}
+
+extern "C" void C_GrBackendFormats_ConstructGLFormat(GrBackendFormat* uninitialized, GrGLenum format) {
+    new (uninitialized) GrBackendFormat(GrBackendFormats::MakeGL(format));
+}
+
+extern "C" void C_GrBackendFormats_ConstructGLExternal(GrBackendFormat* uninitialized) {
+    new (uninitialized) GrBackendFormat(GrBackendFormats::MakeGLExternal());
 }
 
 extern "C" GrGLFormat C_GrBackendFormats_AsGLFormat(const GrBackendFormat* format) {

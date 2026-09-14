@@ -1,6 +1,6 @@
 use crate::{
-    Features, HostOS, Job, TargetConf, Workflow, WorkflowKind, LINUX_JOB, MACOS_JOB,
-    WINDOWS_ARM_JOB, WINDOWS_JOB,
+    Features, HostOS, Job, JobFeatures, JobName, LINUX_JOB, MACOS_JOB, TargetConf, WASM_JOB,
+    WINDOWS_ARM_JOB, WINDOWS_JOB, Workflow, WorkflowKind,
 };
 
 pub const DEFAULT_ANDROID_API_LEVEL: usize = 26;
@@ -41,101 +41,149 @@ pub fn workflows() -> Vec<Workflow> {
             targets: macos_targets(),
             host_bin_ext: "",
         });
+        workflows.push(Workflow {
+            kind,
+            host_os: HostOS::Wasm,
+            host_target: "wasm32-unknown-emscripten",
+            job_template: WASM_JOB,
+            targets: wasm_targets(),
+            host_bin_ext: "",
+        });
     }
     workflows
 }
 
 pub fn jobs(workflow: &Workflow) -> Vec<Job> {
     match workflow.kind {
-        WorkflowKind::QA => qa_jobs(),
-        WorkflowKind::Release => release_jobs(workflow),
+        WorkflowKind::QA => qa_jobs(workflow),
+        WorkflowKind::Release => binaries_jobs(workflow),
     }
 }
 
-pub fn qa_jobs() -> Vec<Job> {
-    const QA_ALL_FEATURES: &str = "gl,vulkan,textlayout,svg,ureq,webp";
-    [
-        Job {
-            name: "stable-all-features".into(),
-            toolchain: "stable",
-            features: QA_ALL_FEATURES.into(),
-            example_args: Some("--driver cpu --driver pdf --driver svg".into()),
-            ..Job::default()
-        },
-        /*
-        Job {
-            name: "stable-all-features-debug",
-            toolchain: "stable",
-            features: QA_ALL_FEATURES.into(),
-            skia_debug: true,
-            ..Job::default()
-        },
-        */
-        Job {
-            name: "beta-all-features".into(),
-            toolchain: "beta",
-            features: QA_ALL_FEATURES.into(),
-            ..Job::default()
-        },
-    ]
-    .into()
+pub fn qa_jobs(workflow: &Workflow) -> Vec<Job> {
+    match workflow.host_os {
+        HostOS::Wasm => {
+            // WASM QA: Use features that work with WASM (no vulkan, ureq)
+            vec![Job {
+                name: JobName::Named("stable-all-features".into()),
+                toolchain: "stable",
+                features: JobFeatures::Direct("gl,textlayout,svg,skottie,webp".into()),
+                skia_debug: false,
+                disable_clippy: false,
+                example_args: None,
+            }]
+        }
+        _ => {
+            const QA_ALL_FEATURES: &str =
+                "ganesh,gl,graphite,skottie,svg,textlayout,ureq,vulkan,webp";
+            vec![Job {
+                name: JobName::Named("stable-all-features".into()),
+                toolchain: "stable",
+                features: JobFeatures::Direct(QA_ALL_FEATURES.into()),
+                skia_debug: false,
+                disable_clippy: false,
+                example_args: Some("--driver cpu --driver pdf --driver svg".into()),
+            }]
+        }
+    }
 }
 
-/// Jobs for releasing prebuilt binaries.
-pub fn release_jobs(workflow: &Workflow) -> Vec<Job> {
-    let mut jobs: Vec<_> = [
-        release_job(""),
-        release_job("gl"),
-        release_job("vulkan"),
-        release_job("textlayout"),
-        release_job("gl,textlayout"),
-        release_job("vulkan,textlayout"),
-        release_job("gl,vulkan,textlayout"),
-    ]
-    .into();
+/// Jobs for building prebuilt binaries.
+pub fn binaries_jobs(workflow: &Workflow) -> Vec<Job> {
+    let mut features: Vec<Features> = if workflow.host_os == HostOS::Wasm {
+        // WASM: Only features that work (no vulkan, ureq, x11, wayland)
+        vec![
+            "".into(),
+            "ganesh,gl".into(),
+            "textlayout".into(),
+            "ganesh,gl,textlayout".into(),
+        ]
+    } else {
+        [
+            "",
+            "gl",
+            "ganesh,vulkan",
+            "textlayout",
+            "ganesh,gl,textlayout",
+            "ganesh,vulkan,textlayout",
+            "ganesh,gl,vulkan,textlayout",
+        ]
+        .iter()
+        .map(|s| (*s).into())
+        .collect()
+    };
 
     match workflow.host_os {
         HostOS::Windows | HostOS::WindowsArm => {
-            jobs.push(release_job("d3d"));
-            jobs.push(release_job("d3d,textlayout"));
-            jobs.push(release_job("d3d,gl,textlayout"));
+            features.extend_from_slice(&[
+                "d3d".into(),
+                "d3d,textlayout".into(),
+                "d3d,gl,textlayout".into(),
+            ]);
+            if workflow.host_os == HostOS::Windows {
+                features.push("graphite,vulkan".into());
+            }
         }
         HostOS::Linux => {
-            jobs.push(release_job("gl,x11"));
-            jobs.push(release_job("gl,textlayout,x11"));
-            // Full feature set: See skia-safe/Cargo.toml all-linux
-            jobs.push(release_job("gl,egl,x11,wayland,vulkan,textlayout,svg,webp"))
+            features.extend_from_slice(&[
+                "graphite,vulkan".into(),
+                "gl,x11".into(),
+                "gl,textlayout,x11".into(),
+                // Full feature set: See skia-safe/Cargo.toml all-linux
+                "ganesh,gl,egl,x11,wayland,vulkan,textlayout,svg,skottie,webp".into(),
+            ]);
         }
         HostOS::MacOS => {
-            jobs.push(release_job("metal"));
-            jobs.push(release_job("metal,textlayout"));
-            jobs.push(release_job("metal,gl,textlayout"));
+            features.extend_from_slice(&[
+                "ganesh,metal".into(),
+                "graphite,metal".into(),
+                "ganesh,metal,textlayout".into(),
+                "ganesh,metal,gl,textlayout".into(),
+            ]);
+        }
+        HostOS::Wasm => {
+            // WASM-specific features added via grida_canvas_release_features
         }
     }
 
-    jobs.extend(freya_release_jobs(workflow));
-    jobs.extend(vizia_release_jobs(workflow));
-    jobs.extend(skia_canvas_release_jobs(workflow));
-    jobs.extend(grida_canvas_release_jobs(workflow));
+    features.extend(freya_binaries_features(workflow));
+    features.extend(vizia_binaries_features(workflow));
+    features.extend(skia_canvas_binaries_features(workflow));
+    features.extend(grida_canvas_binaries_features(workflow));
+    features.extend(neovide_binaries_features(workflow));
+    features.extend(slint_binaries_features(workflow));
 
-    jobs
+    features.sort();
+    features.dedup();
+
+    vec![Job {
+        name: JobName::Binaries,
+        toolchain: "stable",
+        features: JobFeatures::Matrix(features),
+        skia_debug: false,
+        disable_clippy: false,
+        example_args: None,
+    }]
 }
 
 /// Specific binary releases for the Freya GUI library <https://github.com/marc2332/freya>
 /// <https://github.com/rust-skia/rust-skia/issues/706>
-fn freya_release_jobs(workflow: &Workflow) -> Vec<Job> {
+fn freya_binaries_features(workflow: &Workflow) -> Vec<Features> {
     match workflow.host_os {
-        HostOS::Windows | HostOS::MacOS => {
-            vec![release_job("gl,textlayout,svg")]
+        HostOS::Windows => {
+            vec!["gl,textlayout,svg".into()]
         }
-        HostOS::WindowsArm => {
+        HostOS::MacOS => {
+            vec!["ganesh,gl,textlayout,svg,metal".into()]
+        }
+        HostOS::WindowsArm | HostOS::Wasm => {
             vec![]
         }
         HostOS::Linux => {
             vec![
-                release_job("gl,textlayout,svg,x11"),
+                "gl,textlayout,svg,x11".into(),
                 // <https://github.com/rust-skia/rust-skia/issues/737>
-                release_job("gl,textlayout,svg,wayland,x11"),
+                "gl,textlayout,svg,wayland,x11".into(),
             ]
         }
     }
@@ -143,15 +191,15 @@ fn freya_release_jobs(workflow: &Workflow) -> Vec<Job> {
 
 /// Specific binary releases for the Vizia GUI library <https://github.com/vizia/vizia>
 /// <https://github.com/rust-skia/rust-skia/discussions/961#discussioncomment-10485430>
-fn vizia_release_jobs(workflow: &Workflow) -> Vec<Job> {
+fn vizia_binaries_features(workflow: &Workflow) -> Vec<Features> {
     match workflow.host_os {
         HostOS::MacOS => {
-            vec![release_job("gl,vulkan,textlayout,svg")]
+            vec!["ganesh,gl,vulkan,textlayout,svg".into()]
         }
         HostOS::Windows => {
-            vec![release_job("gl,vulkan,textlayout,svg,d3d")]
+            vec!["ganesh,gl,vulkan,textlayout,svg,d3d".into()]
         }
-        HostOS::WindowsArm => {
+        HostOS::WindowsArm | HostOS::Wasm => {
             vec![]
         }
         HostOS::Linux => {
@@ -164,54 +212,69 @@ fn vizia_release_jobs(workflow: &Workflow) -> Vec<Job> {
 
 // Binaries for Skia Canvas: <https://github.com/samizdatco/skia-canvas>
 // <https://github.com/rust-skia/rust-skia/pull/1068#issuecomment-2518894492>
-fn skia_canvas_release_jobs(workflow: &Workflow) -> Vec<Job> {
+fn skia_canvas_binaries_features(workflow: &Workflow) -> Vec<Features> {
     match workflow.host_os {
         HostOS::MacOS => {
             vec![
-                release_job("textlayout,webp,svg"),
-                release_job("metal,textlayout,webp,svg"),
+                "textlayout,webp,svg".into(),
+                "ganesh,metal,textlayout,webp,svg".into(),
             ]
         }
         HostOS::Windows => {
-            vec![release_job("vulkan,textlayout,webp,svg")]
+            vec!["ganesh,vulkan,textlayout,webp,svg".into()]
         }
         HostOS::WindowsArm => {
-            vec![release_job("vulkan,textlayout,webp,svg")]
+            vec!["ganesh,vulkan,textlayout,webp,svg".into()]
         }
         HostOS::Linux => {
-            vec![release_job("vulkan,textlayout,webp,svg")]
+            vec!["ganesh,vulkan,textlayout,webp,svg".into()]
+        }
+        HostOS::Wasm => {
+            vec![]
         }
     }
 }
 
 // <https://github.com/rust-skia/rust-skia/issues/1205>
-//
-// This is actually only used for the wasm32-unknown-enscripten target. But right now we
-// can't be this specific.
-fn grida_canvas_release_jobs(workflow: &Workflow) -> Vec<Job> {
+fn grida_canvas_binaries_features(workflow: &Workflow) -> Vec<Features> {
     match workflow.host_os {
-        HostOS::Linux => {
-            vec![release_job("gl,textlayout,svg")]
+        HostOS::Wasm => {
+            vec!["gl,textlayout,svg,webp".into()]
         }
         _ => Vec::new(),
     }
 }
 
-fn release_job(features: impl Into<Features>) -> Job {
-    let features = features.into();
-    let name = {
-        let name = features.name("-");
-        if !name.is_empty() {
-            format!("release-{name}")
-        } else {
-            "release".into()
+// Binaries for Neovide: <https://github.com/neovide/neovide>
+// <https://github.com/neovide/neovide/pull/3544>
+fn neovide_binaries_features(workflow: &Workflow) -> Vec<Features> {
+    match workflow.host_os {
+        HostOS::Linux => vec!["embed-freetype,gl,textlayout".into()],
+        _ => Vec::new(),
+    }
+}
+
+/// Specific binary releases for the Slint UI toolkit <https://github.com/slint-ui/slint>
+///
+/// Slint shapes and lays out text itself, so it combines `gl` with the platform's
+/// accelerator but does not use `textlayout`. Every published combination of `gl`
+/// plus an accelerator currently enables `textlayout`, which embeds Skia's ICU data
+/// and adds about 10 MB to the resulting binary.
+fn slint_binaries_features(workflow: &Workflow) -> Vec<Features> {
+    match workflow.host_os {
+        HostOS::MacOS => {
+            vec!["ganesh,gl,metal".into()]
         }
-    };
-    Job {
-        name,
-        toolchain: "stable",
-        features,
-        ..Job::default()
+        HostOS::Windows | HostOS::WindowsArm => {
+            vec!["d3d,gl".into()]
+        }
+        // Covers the Android targets built by the Linux workflow as well.
+        HostOS::Linux => {
+            vec!["ganesh,gl,vulkan".into()]
+        }
+        HostOS::Wasm => {
+            vec![]
+        }
     }
 }
 
@@ -230,7 +293,6 @@ fn linux_targets() -> Vec<TargetConf> {
     )];
     targets.extend(linux_aarch64_targets());
     targets.extend(android_targets());
-    targets.extend(wasm_targets());
     targets
 }
 
@@ -238,9 +300,10 @@ fn macos_targets() -> Vec<TargetConf> {
     vec![
         TargetConf::new("aarch64-apple-darwin", "metal"),
         TargetConf::new("x86_64-apple-darwin", "metal"),
-        TargetConf::new("aarch64-apple-ios", "metal"),
-        TargetConf::new("aarch64-apple-ios-sim", "metal"),
-        TargetConf::new("x86_64-apple-ios", "metal"),
+        // iOS: Vulkan is not supported ("No Vulkan support on iOS yet" in Skia)
+        TargetConf::new("aarch64-apple-ios", "metal").disable("vulkan"),
+        TargetConf::new("aarch64-apple-ios-sim", "metal").disable("vulkan"),
+        TargetConf::new("x86_64-apple-ios", "metal").disable("vulkan"),
     ]
 }
 
@@ -253,15 +316,15 @@ fn linux_aarch64_targets() -> Vec<TargetConf> {
 }
 
 fn android_targets() -> Vec<TargetConf> {
+    // Android already embeds FreeType, so an explicit feature would duplicate existing binaries.
     [
-        TargetConf::new("aarch64-linux-android", ""),
-        TargetConf::new("x86_64-linux-android", ""),
-        TargetConf::new("i686-linux-android", ""),
+        TargetConf::new("aarch64-linux-android", "").disable("egl,embed-freetype,x11,wayland"),
+        TargetConf::new("x86_64-linux-android", "").disable("egl,embed-freetype,x11,wayland"),
     ]
     .into()
 }
 
-fn wasm_targets() -> Vec<TargetConf> {
+pub fn wasm_targets() -> Vec<TargetConf> {
     // Compiling ureq-proto v0.3.0
     //   error[E0277]: the trait bound `SystemRandom: ring::rand::SecureRandom` is not satisfied
     [TargetConf::new("wasm32-unknown-emscripten", "").disable("ureq,x11,wayland,vulkan")].into()
